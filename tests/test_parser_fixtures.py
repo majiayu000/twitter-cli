@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from twitter_cli.client import TwitterClient
-from twitter_cli.parser import _deep_get, parse_timeline_response
+from twitter_cli.parser import _deep_get, parse_explore_timeline_response, parse_timeline_response
 
 
 def _make_client() -> TwitterClient:
@@ -75,6 +75,72 @@ def test_parse_search_timeline_fixture_with_module_items(fixture_loader) -> None
     assert cursor == "search-cursor"
     assert tweets[0].media[0].type == "video"
     assert tweets[0].media[0].url == "https://video-high.mp4"
+
+
+def test_parse_explore_timeline_trends_from_module_items() -> None:
+    payload = {
+        "data": {
+            "timeline": {
+                "timeline": {
+                    "instructions": [
+                        {
+                            "entries": [
+                                {
+                                    "content": {
+                                        "entryType": "TimelineTimelineModule",
+                                        "items": [
+                                            {
+                                                "entryId": "trend-1",
+                                                "item": {
+                                                    "itemContent": {
+                                                        "__typename": "TimelineTrend",
+                                                        "itemType": "TimelineTrend",
+                                                        "name": "OpenAI launches feature",
+                                                        "is_ai_trend": True,
+                                                        "social_context": {
+                                                            "text": "4 hours ago · News · 195 posts",
+                                                            "contextImageUrls": ["https://example.com/a.jpg"],
+                                                        },
+                                                        "trend_url": {
+                                                            "url": "twitter://trending/12345",
+                                                            "urlType": "DeepLink",
+                                                        },
+                                                    }
+                                                },
+                                            }
+                                        ],
+                                    }
+                                },
+                                {
+                                    "content": {
+                                        "entryType": "TimelineTimelineCursor",
+                                        "cursorType": "Bottom",
+                                        "value": "cursor-next",
+                                    }
+                                },
+                            ]
+                        }
+                    ]
+                }
+            }
+        }
+    }
+
+    items, cursor = parse_explore_timeline_response(
+        payload,
+        lambda data: _deep_get(data, "data", "timeline", "timeline", "instructions"),
+        section="news",
+    )
+
+    assert cursor == "cursor-next"
+    assert len(items) == 1
+    assert items[0].id == "12345"
+    assert items[0].name == "OpenAI launches feature"
+    assert items[0].section == "news"
+    assert items[0].category == "News"
+    assert items[0].time_context == "4 hours ago"
+    assert items[0].post_count_text == "195 posts"
+    assert items[0].is_ai_trend is True
 
 
 def test_parse_list_timeline_fixture_with_visibility_wrapper(fixture_loader) -> None:

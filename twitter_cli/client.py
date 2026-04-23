@@ -51,6 +51,7 @@ from .models import BookmarkFolder, UserProfile
 from .parser import (
     _deep_get,
     _parse_int,
+    parse_explore_timeline_response,
     parse_timeline_response,
     parse_tweet_result,
     parse_user_result,
@@ -59,12 +60,12 @@ from .parser import (
 if TYPE_CHECKING:
     from typing import Dict, List, Optional, Set, Tuple  # noqa: F401
 
-    from .models import Tweet  # noqa: F401
+    from .models import ExploreItem, Tweet  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
 # Shared curl_cffi session (single-threaded CLI)
-_cffi_session = None
+_cffi_session: Any = None
 
 TimelineInstructionGetter = Callable[[Any], Any]
 
@@ -361,6 +362,40 @@ class TwitterClient:
             },
             override_base_variables=True,
             use_post=True,
+        )
+
+    def fetch_explore_page(self):
+        # type: () -> Dict[str, Any]
+        """Fetch the Explore page metadata, including available timelines."""
+        return self._graphql_get("ExplorePage", {}, FEATURES)
+
+    def fetch_explore_timeline(self, section="news", count=20, cursor=None, return_cursor=False):
+        # type: (str, int, Optional[str], bool) -> Any
+        """Fetch an Explore tab timeline such as news, trending, or sports."""
+        section_id = section.strip().lower().replace("-", "_")
+        page = self.fetch_explore_page()
+        timelines = _deep_get(page, "data", "explore_page", "body", "timelines") or []
+        timeline_id = None  # type: Optional[str]
+
+        for timeline in timelines:
+            if not isinstance(timeline, dict):
+                continue
+            if timeline.get("id") == section_id:
+                timeline_id = _deep_get(timeline, "timeline", "id")
+                break
+
+        if not timeline_id:
+            raise NotFoundError("Explore section not found: %s" % section)
+
+        section_label = section_id.replace("_", "-")
+        return self._fetch_explore_items(
+            "GenericTimelineById",
+            {"timelineId": timeline_id},
+            section_label,
+            count,
+            lambda data: _deep_get(data, "data", "timeline", "timeline", "instructions"),
+            start_cursor=cursor,
+            return_cursor=return_cursor,
         )
 
     def fetch_tweet_detail(self, tweet_id, count=20):
@@ -812,6 +847,58 @@ class TwitterClient:
         if return_cursor:
             return tweets[:count], continuation_cursor
         return tweets[:count]
+
+    def _fetch_explore_items(self, operation_name, base_variables, section, count, get_instructions, start_cursor=None, return_cursor=False):
+        # type: (str, Dict[str, Any], str, int, Callable[[Any], Any], Optional[str], bool) -> Any
+        """Generic Explore timeline fetcher with pagination and deduplication."""
+        if count <= 0:
+            return ([], None) if return_cursor else []
+
+        count = min(count, self._max_count)
+        items = []  # type: List[ExploreItem]
+        seen_ids = set()  # type: Set[str]
+        cursor = start_cursor  # type: Optional[str]
+        continuation_cursor = None  # type: Optional[str]
+        attempts = 0
+        max_attempts = int(math.ceil(count / 20.0)) + 2
+
+        while len(items) < count and attempts < max_attempts:
+            attempts += 1
+            variables = dict(base_variables)
+            variables["count"] = min(count - len(items) + 5, 40)
+            if cursor:
+                variables["cursor"] = cursor
+
+            data = self._graphql_get(operation_name, variables, FEATURES)
+            new_items, next_cursor = parse_explore_timeline_response(
+                data,
+                get_instructions,
+                section=section,
+            )
+            for item in new_items:
+                key = item.id or item.name
+                if key and key not in seen_ids:
+                    seen_ids.add(key)
+                    items.append(item)
+
+            if not next_cursor:
+                continuation_cursor = None
+                break
+            if next_cursor == cursor:
+                logger.debug("Explore pagination stopped because cursor did not advance: %s", next_cursor)
+                continuation_cursor = None
+                break
+            continuation_cursor = next_cursor
+            cursor = next_cursor
+
+            if len(items) < count and self._request_delay > 0:
+                jitter = self._request_delay * random.uniform(0.7, 1.5)
+                logger.debug("Sleeping %.1fs between explore requests", jitter)
+                time.sleep(jitter)
+
+        if return_cursor:
+            return items[:count], continuation_cursor
+        return items[:count]
 
     def _fetch_user_list(self, operation_name, user_id, count, get_instructions):
         # type: (str, str, int, Callable[[Any], Any]) -> List[UserProfile]

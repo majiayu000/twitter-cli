@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, Iterable, List, Optional
 
-from .models import Author, BookmarkFolder, Metrics, Tweet, TweetMedia, UserProfile
+from .models import Author, BookmarkFolder, ExploreItem, Metrics, Tweet, TweetMedia, UserProfile
 from .timeutil import format_iso8601, format_local_time
 
 
@@ -177,6 +177,32 @@ def tweets_to_compact_json(tweets: Iterable[Tweet]) -> str:
         ensure_ascii=False,
         indent=2,
     )
+
+
+def explore_item_to_dict(item: ExploreItem) -> Dict[str, Any]:
+    """Convert an ExploreItem dataclass into a JSON-safe dict."""
+    return {
+        "id": item.id,
+        "name": item.name,
+        "section": item.section,
+        "context": item.context,
+        "category": item.category,
+        "timeContext": item.time_context,
+        "postCountText": item.post_count_text,
+        "url": item.url,
+        "imageUrls": list(item.image_urls),
+        "isAiTrend": item.is_ai_trend,
+    }
+
+
+def explore_items_to_data(items: Iterable[ExploreItem]) -> List[Dict[str, Any]]:
+    """Serialize ExploreItem objects to Python dicts."""
+    return [explore_item_to_dict(item) for item in items]
+
+
+def explore_items_to_json(items: Iterable[ExploreItem]) -> str:
+    """Serialize ExploreItem objects to pretty JSON."""
+    return json.dumps(explore_items_to_data(items), ensure_ascii=False, indent=2)
 
 
 def bookmark_folder_to_dict(folder: BookmarkFolder) -> Dict[str, Any]:

@@ -57,6 +57,20 @@ class Tweet:
 
 
 @dataclass
+class ExploreItem:
+    id: str
+    name: str
+    section: str = ""
+    context: str = ""
+    category: str = ""
+    time_context: str = ""
+    post_count_text: str = ""
+    url: str = ""
+    image_urls: List[str] = field(default_factory=list)
+    is_ai_trend: bool = False
+
+
+@dataclass
 class BookmarkFolder:
     id: str
     name: str

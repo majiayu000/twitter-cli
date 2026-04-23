@@ -1434,3 +1434,85 @@ class TestFetchSearchUsesPost:
 
         assert captured.get("product") == "Latest"
         assert captured.get("querySource") == "typed_query"
+
+
+# ── fetch_explore_timeline ────────────────────────────────────────────────
+
+class TestFetchExploreTimeline:
+    """Verify Explore tab lookup and timeline parsing."""
+
+    def _make_client(self):
+        client = TwitterClient.__new__(TwitterClient)
+        client._auth_token = "tok"
+        client._ct0 = "ct0"
+        client._cookie_string = None
+        client._request_delay = 0
+        client._max_retries = 0
+        client._retry_base_delay = 0
+        client._max_count = 200
+        client._client_transaction = None
+        client._ct_init_attempted = True
+        return client
+
+    def test_fetch_explore_timeline_resolves_section_timeline_id(self):
+        client = self._make_client()
+        calls = []
+
+        def mock_get(operation_name, variables, features, field_toggles=None):
+            calls.append((operation_name, variables))
+            if operation_name == "ExplorePage":
+                return {
+                    "data": {
+                        "explore_page": {
+                            "body": {
+                                "timelines": [
+                                    {"id": "news", "timeline": {"id": "encoded-news"}},
+                                ]
+                            }
+                        }
+                    }
+                }
+            if operation_name == "GenericTimelineById":
+                assert variables["timelineId"] == "encoded-news"
+                return {
+                    "data": {
+                        "timeline": {
+                            "timeline": {
+                                "instructions": [
+                                    {
+                                        "entries": [
+                                            {
+                                                "content": {
+                                                    "entryType": "TimelineTimelineItem",
+                                                    "itemContent": {
+                                                        "__typename": "TimelineTrend",
+                                                        "itemType": "TimelineTrend",
+                                                        "name": "Launch news",
+                                                        "social_context": {
+                                                            "text": "1 hour ago · News · 10 posts",
+                                                        },
+                                                        "trend_url": {
+                                                            "url": "twitter://trending/555",
+                                                        },
+                                                    },
+                                                }
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                }
+            return {}
+
+        client._graphql_get = mock_get
+
+        items, cursor = client.fetch_explore_timeline("news", count=5, return_cursor=True)
+
+        assert [call[0] for call in calls] == ["ExplorePage", "GenericTimelineById"]
+        assert cursor is None
+        assert len(items) == 1
+        assert items[0].id == "555"
+        assert items[0].name == "Launch news"
+        assert items[0].section == "news"

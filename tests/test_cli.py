@@ -10,7 +10,7 @@ import yaml
 
 from twitter_cli.cli import cli
 from twitter_cli.formatter import article_to_markdown, print_tweet_table
-from twitter_cli.models import Author, BookmarkFolder, Metrics, Tweet, UserProfile
+from twitter_cli.models import Author, BookmarkFolder, ExploreItem, Metrics, Tweet, UserProfile
 from twitter_cli.serialization import tweets_to_json
 
 
@@ -704,6 +704,79 @@ def test_cli_search_empty_query_no_options() -> None:
     result = runner.invoke(cli, ["search"])
     assert result.exit_code != 0
     assert "Provide a QUERY" in result.output
+
+
+def test_cli_explore_news_json(monkeypatch) -> None:
+    captured = {}
+
+    class FakeClient:
+        def fetch_explore_timeline(
+            self,
+            section: str,
+            count: int,
+            cursor: str | None = None,
+            return_cursor: bool = False,
+        ):
+            captured["section"] = section
+            captured["count"] = count
+            captured["cursor"] = cursor
+            captured["return_cursor"] = return_cursor
+            return [
+                ExploreItem(
+                    id="123",
+                    name="OpenAI launches feature",
+                    section=section,
+                    context="4 hours ago · News · 195 posts",
+                    category="News",
+                    time_context="4 hours ago",
+                    post_count_text="195 posts",
+                    url="twitter://trending/123",
+                    is_ai_trend=True,
+                )
+            ], "cursor-next"
+
+    monkeypatch.setattr("twitter_cli.cli._get_client", lambda config=None, quiet=False: FakeClient())
+    monkeypatch.setattr(
+        "twitter_cli.cli.load_config",
+        lambda: {"fetch": {"count": 20}, "filter": {}, "rateLimit": {}},
+    )
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["explore", "--section", "news", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert captured == {
+        "section": "news",
+        "count": 20,
+        "cursor": None,
+        "return_cursor": True,
+    }
+    assert payload["ok"] is True
+    assert payload["data"][0]["name"] == "OpenAI launches feature"
+    assert payload["data"][0]["isAiTrend"] is True
+    assert payload["pagination"]["nextCursor"] == "cursor-next"
+
+
+def test_cli_today_news_alias_uses_news_section(monkeypatch) -> None:
+    captured = {}
+
+    class FakeClient:
+        def fetch_explore_timeline(self, section: str, count: int, cursor=None, return_cursor=False):
+            captured["section"] = section
+            return [], None
+
+    monkeypatch.setattr("twitter_cli.cli._get_client", lambda config=None, quiet=False: FakeClient())
+    monkeypatch.setattr(
+        "twitter_cli.cli.load_config",
+        lambda: {"fetch": {"count": 10}, "filter": {}, "rateLimit": {}},
+    )
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["today-news", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert captured["section"] == "news"
 
 
 def test_cli_search_invalid_date_rejected(monkeypatch) -> None:

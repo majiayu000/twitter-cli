@@ -49,6 +49,8 @@ FALLBACK_QUERY_IDS = {
     "TweetResultByRestId": "zy39CwTyYhU-_0LP7dljjg",
     "BookmarkFoldersSlice": "i78YDd0Tza-dV4SYs58kRg",
     "BookmarkFolderTimeline": "hNY7X2xE2N7HVF6Qb_mu6w",
+    "ExplorePage": "natW-0sLlOif7doGb8m_rQ",
+    "GenericTimelineById": "Dv_o7vs8Oz4Fo0R5A4a84A",
 }
 
 # ── Default feature flags ────────────────────────────────────────────────

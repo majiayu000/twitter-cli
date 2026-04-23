@@ -23,6 +23,7 @@ A terminal-first CLI for Twitter/X: read timelines, bookmarks, and user profiles
 - Timeline: fetch `for-you` and `following` feeds
 - Bookmarks: list saved tweets from your account
 - Search: find tweets by keyword with Top/Latest/Photos/Videos tabs
+- Explore: fetch Explore tabs such as News, Trending, Sports, and Entertainment
 - Tweet detail: view a tweet and its replies; use `show <N>` to open tweet #N from the last list output
 - Article: fetch a Twitter Article and export it as Markdown
 - List timeline: fetch tweets from a Twitter List
@@ -117,6 +118,11 @@ twitter search "python" --from elonmusk --lang en --since 2026-01-01
 twitter search --from bbc --exclude retweets --has links
 twitter search "topic" -o results.json         # Save to file
 twitter search "trending" --filter              # Apply ranking filter
+
+# Explore / today news
+twitter explore --section news --json
+twitter explore --section trending --max 20
+twitter today-news --json
 
 # Tweet detail (view tweet + replies)
 twitter tweet 1234567890
@@ -377,6 +383,7 @@ git clone git@github.com:jackwener/twitter-cli.git .agents/skills/twitter-cli
 - 时间线读取：支持 `for-you` 和 `following`
 - 收藏读取：查看账号书签推文
 - 搜索：按关键词搜索推文，支持 Top/Latest/Photos/Videos
+- Explore：获取 News、Trending、Sports、Entertainment 等探索页条目
 - 推文详情：查看推文及其回复；用 `show <N>` 可直接打开上次列表里的第 N 条推文
 - 文章读取：获取 Twitter 长文，并导出为 Markdown
 - 列表时间线：获取 Twitter List 的推文
@@ -440,6 +447,11 @@ twitter search "AI agent" -t Latest --max 50
 twitter search "AI agent" --full-text
 twitter search "topic" -o results.json         # 保存到文件
 twitter search "trending" --filter              # 启用排序筛选
+
+# 探索 / 今日新闻
+twitter explore --section news --json
+twitter explore --section trending --max 20
+twitter today-news --json
 
 # 推文详情
 twitter tweet 1234567890

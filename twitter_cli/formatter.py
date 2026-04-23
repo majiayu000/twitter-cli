@@ -10,7 +10,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 
-from .models import Tweet, UserProfile
+from .models import ExploreItem, Tweet, UserProfile
 from .timeutil import format_local_time, format_relative_time
 
 
@@ -242,6 +242,49 @@ def print_filter_stats(
         console.print(
             "   Score range: %.1f ~ %.1f" % (bottom_score, top_score)
         )
+
+
+def print_explore_table(
+    items: List[ExploreItem],
+    console: Optional[Console] = None,
+    title: Optional[str] = None,
+) -> None:
+    """Print Explore trends/news as a rich table."""
+    if console is None:
+        console = _make_console()
+
+    if not title:
+        title = "Explore - %d items" % len(items)
+
+    table = Table(title=title, show_lines=True, expand=True)
+    table.add_column("#", style="dim", width=3, justify="right")
+    table.add_column("Section", style="cyan", width=14, no_wrap=True)
+    table.add_column("Topic", ratio=3)
+    table.add_column("Context", style="green", ratio=2)
+
+    for i, item in enumerate(items):
+        topic = item.name
+        if item.url:
+            topic += "\n%s" % item.url
+
+        context_parts = []
+        if item.context:
+            context_parts.append(item.context)
+        else:
+            for part in (item.time_context, item.category, item.post_count_text):
+                if part:
+                    context_parts.append(part)
+        if item.is_ai_trend:
+            context_parts.append("AI trend")
+
+        table.add_row(
+            str(i + 1),
+            item.section,
+            topic,
+            "\n".join(context_parts),
+        )
+
+    console.print(table)
 
 
 def print_user_profile(user: UserProfile, console: Optional[Console] = None) -> None:

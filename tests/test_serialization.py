@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from twitter_cli.serialization import tweet_from_dict, tweet_to_dict, tweets_from_json, tweets_to_json
+from twitter_cli.models import ExploreItem
+from twitter_cli.serialization import (
+    explore_item_to_dict,
+    tweet_from_dict,
+    tweet_to_dict,
+    tweets_from_json,
+    tweets_to_json,
+)
 
 
 def test_tweet_roundtrip_dict(tweet_factory) -> None:
@@ -93,3 +100,27 @@ def test_tweet_roundtrip_preserves_promoted_flag(tweet_factory) -> None:
     assert payload["isPromoted"] is True
     restored = tweet_from_dict(payload)
     assert restored.is_promoted is True
+
+
+def test_explore_item_serialization() -> None:
+    item = ExploreItem(
+        id="123",
+        name="OpenAI launches feature",
+        section="news",
+        context="4 hours ago · News · 195 posts",
+        category="News",
+        time_context="4 hours ago",
+        post_count_text="195 posts",
+        url="twitter://trending/123",
+        image_urls=["https://example.com/a.jpg"],
+        is_ai_trend=True,
+    )
+
+    payload = explore_item_to_dict(item)
+
+    assert payload["id"] == "123"
+    assert payload["name"] == "OpenAI launches feature"
+    assert payload["section"] == "news"
+    assert payload["postCountText"] == "195 posts"
+    assert payload["imageUrls"] == ["https://example.com/a.jpg"]
+    assert payload["isAiTrend"] is True

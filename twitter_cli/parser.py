@@ -7,12 +7,13 @@ Converts raw GraphQL response JSON into domain model objects
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from typing import Any, Callable, Dict, List, Optional, Tuple  # noqa: F401
 
-from .models import Author, Metrics, Tweet, TweetMedia, UserProfile
+from .models import Author, ExploreItem, Metrics, Tweet, TweetMedia, UserProfile
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,88 @@ def _extract_cursor(content):
     if content.get("cursorType") == "Bottom":
         return content.get("value")
     return None
+
+
+def _parse_context_parts(context):
+    # type: (str) -> Tuple[str, str, str]
+    """Split X Explore social context into time/category/post-count parts."""
+    parts = [part.strip() for part in context.split("·") if part.strip()]
+    time_context = parts[0] if parts else ""
+    category = ""
+    post_count_text = ""
+    if len(parts) >= 3:
+        category = parts[1]
+        post_count_text = parts[2]
+    elif len(parts) == 2:
+        post_count_text = parts[1] if "post" in parts[1].lower() else ""
+        category = "" if post_count_text else parts[1]
+    return time_context, category, post_count_text
+
+
+def _extract_trend_id(url):
+    # type: (str) -> str
+    """Extract a trend id from twitter://trending/<id> deep links."""
+    if not url:
+        return ""
+    match = re.search(r"/trending/([^/?#]+)", url)
+    if match:
+        return match.group(1)
+    match = re.search(r"trending[:/]+([^/?#]+)", url)
+    return match.group(1) if match else ""
+
+
+def _parse_explore_trend(item_content, section):
+    # type: (Dict[str, Any], str) -> Optional[ExploreItem]
+    """Parse a TimelineTrend item from Explore timelines."""
+    if not isinstance(item_content, dict):
+        return None
+    if item_content.get("__typename") != "TimelineTrend" and item_content.get("itemType") != "TimelineTrend":
+        return None
+
+    name = item_content.get("name") or ""
+    if not name:
+        return None
+
+    social_context = item_content.get("social_context") or {}
+    context = social_context.get("text") or ""
+    time_context, category, post_count_text = _parse_context_parts(context)
+    image_urls = social_context.get("contextImageUrls") or []
+    url = (
+        _deep_get(item_content, "trend_url", "url")
+        or _deep_get(item_content, "trend_metadata", "url", "url")
+        or ""
+    )
+    trend_id = _extract_trend_id(url)
+
+    return ExploreItem(
+        id=trend_id or name,
+        name=name,
+        section=section,
+        context=context,
+        category=category,
+        time_context=time_context,
+        post_count_text=post_count_text,
+        url=url,
+        image_urls=[str(image_url) for image_url in image_urls if image_url],
+        is_ai_trend=bool(item_content.get("is_ai_trend", False)),
+    )
+
+
+def _extract_explore_items_from_content(content, section):
+    # type: (Dict[str, Any], str) -> List[ExploreItem]
+    """Extract Explore items from a timeline entry content object."""
+    items = []  # type: List[ExploreItem]
+    item_content = content.get("itemContent") or {}
+    parsed = _parse_explore_trend(item_content, section)
+    if parsed:
+        items.append(parsed)
+
+    for nested_item in content.get("items", []):
+        nested_content = _deep_get(nested_item, "item", "itemContent") or nested_item.get("itemContent") or {}
+        parsed = _parse_explore_trend(nested_content, section)
+        if parsed:
+            items.append(parsed)
+    return items
 
 
 # ── Media / Author extraction ────────────────────────────────────────────
@@ -529,3 +612,24 @@ def parse_timeline_response(data, get_instructions):
                         tweets.append(tweet)
 
     return tweets, next_cursor
+
+
+def parse_explore_timeline_response(data, get_instructions, section=""):
+    # type: (Any, Callable[[Any], Any], str) -> Tuple[List[ExploreItem], Optional[str]]
+    """Parse an Explore timeline GraphQL response into ExploreItem objects."""
+    items = []  # type: List[ExploreItem]
+    next_cursor = None  # type: Optional[str]
+
+    instructions = get_instructions(data)
+    if not isinstance(instructions, list):
+        logger.warning("No explore timeline instructions found")
+        return items, next_cursor
+
+    for instruction in instructions:
+        entries = instruction.get("entries") or instruction.get("moduleItems") or []
+        for entry in entries:
+            content = entry.get("content", {})
+            next_cursor = _extract_cursor(content) or next_cursor
+            items.extend(_extract_explore_items_from_content(content, section))
+
+    return items, next_cursor

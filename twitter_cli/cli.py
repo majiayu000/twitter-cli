@@ -8,6 +8,8 @@ Read commands:
     twitter bookmarks folders <id>    # tweets in a folder
     twitter search "query"            # search tweets
     twitter search "query" --from user  # advanced search
+    twitter explore --section news    # Explore trends/news
+    twitter today-news                # Explore News shortcut
     twitter user elonmusk             # user profile
     twitter user-posts elonmusk       # user tweets
     twitter likes elonmusk            # user likes
@@ -54,6 +56,7 @@ from .config import load_config
 from .filter import filter_tweets
 from .formatter import (
     article_to_markdown,
+    print_explore_table,
     print_filter_stats,
     print_article,
     print_tweet_detail,
@@ -73,6 +76,8 @@ from .output import (
     use_rich_output,
 )
 from .serialization import (
+    explore_items_to_data,
+    explore_items_to_json,
     tweet_to_dict,
     tweets_from_json,
     tweets_to_data,
@@ -96,6 +101,7 @@ FEED_TYPES = ["for-you", "following"]
 SEARCH_PRODUCTS = ["Top", "Latest", "Photos", "Videos"]
 SEARCH_HAS_CHOICES = ["links", "images", "videos", "media"]
 SEARCH_EXCLUDE_CHOICES = ["retweets", "replies", "links"]
+EXPLORE_SECTIONS = ["for-you", "trending", "news", "sports", "entertainment"]
 
 
 def _agent_user_profile(profile: UserProfile) -> dict:
@@ -353,6 +359,15 @@ def _emit_timeline_structured(tweets, next_cursor, *, as_json, as_yaml):
     # type: (TweetList, Optional[str], bool, bool) -> bool
     """Emit timeline data with pagination metadata while keeping `data` a tweet list."""
     payload = success_payload(tweets_to_data(tweets))
+    if next_cursor:
+        payload["pagination"] = {"nextCursor": next_cursor}
+    return emit_structured(payload, as_json=as_json, as_yaml=as_yaml)
+
+
+def _emit_explore_structured(items, next_cursor, *, as_json, as_yaml):
+    # type: (Any, Optional[str], bool, bool) -> bool
+    """Emit Explore data with pagination metadata while keeping `data` an item list."""
+    payload = success_payload(explore_items_to_data(items))
     if next_cursor:
         payload["pagination"] = {"nextCursor": next_cursor}
     return emit_structured(payload, as_json=as_json, as_yaml=as_yaml)
@@ -795,6 +810,99 @@ def search(ctx, query, product, from_user, to_user, lang, since, until, has, exc
             compact=compact, full_text=full_text,
         )
     _run_guarded(_run)
+
+
+def _run_explore_command(ctx, section, max_count, cursor, as_json, as_yaml, output_file):
+    # type: (Any, str, Optional[int], Optional[str], bool, bool, Optional[str]) -> None
+    compact = ctx.obj.get("compact", False)
+    config = load_config()
+    rich_output = use_rich_output(as_json=as_json, as_yaml=as_yaml, compact=compact)
+    next_cursor = None  # type: Optional[str]
+
+    def _run():
+        nonlocal next_cursor
+        fetch_count = _resolve_configured_count(config, max_count)
+        client = _get_client(config, quiet=not rich_output)
+        if rich_output:
+            console.print("Fetching Explore %s (%d items)...\n" % (section, fetch_count))
+        start = time.time()
+        items, next_cursor = client.fetch_explore_timeline(
+            section,
+            fetch_count,
+            cursor=cursor,
+            return_cursor=True,
+        )
+        elapsed = time.time() - start
+        if rich_output:
+            console.print("Fetched %d Explore %s items in %.1fs\n" % (len(items), section, elapsed))
+        return items
+
+    try:
+        items = _run()
+    except (TwitterError, RuntimeError) as exc:
+        _exit_with_error(exc)
+
+    if output_file:
+        Path(output_file).write_text(explore_items_to_json(items), encoding="utf-8")
+        if rich_output:
+            console.print("Saved Explore items to %s\n" % output_file)
+
+    if compact:
+        click.echo(explore_items_to_json(items))
+        return
+
+    if _emit_explore_structured(items, next_cursor, as_json=as_json, as_yaml=as_yaml):
+        return
+
+    print_explore_table(
+        items,
+        console,
+        title="Explore %s - %d items" % (section, len(items)),
+    )
+    console.print()
+
+
+@cli.command()
+@click.option(
+    "--section",
+    "-s",
+    type=click.Choice(EXPLORE_SECTIONS),
+    default="news",
+    help="Explore section: for-you, trending, news, sports, or entertainment.",
+)
+@click.option("--max", "-n", "max_count", type=int, default=None, help="Max number of items to fetch.")
+@click.option("--cursor", type=str, default=None, help="Pagination cursor for continuing a previous Explore request.")
+@structured_output_options
+@click.option("--output", "-o", "output_file", type=str, default=None, help="Save Explore items to JSON file.")
+@click.pass_context
+def explore(ctx, section, max_count, cursor, as_json, as_yaml, output_file):
+    # type: (Any, str, Optional[int], Optional[str], bool, bool, Optional[str]) -> None
+    """Fetch Explore trends/news from Twitter/X."""
+    _run_explore_command(ctx, section, max_count, cursor, as_json, as_yaml, output_file)
+
+
+@cli.command("today-news")
+@click.option("--max", "-n", "max_count", type=int, default=None, help="Max number of news items to fetch.")
+@click.option("--cursor", type=str, default=None, help="Pagination cursor for continuing a previous news request.")
+@structured_output_options
+@click.option("--output", "-o", "output_file", type=str, default=None, help="Save news items to JSON file.")
+@click.pass_context
+def today_news(ctx, max_count, cursor, as_json, as_yaml, output_file):
+    # type: (Any, Optional[int], Optional[str], bool, bool, Optional[str]) -> None
+    """Fetch today's Explore news items."""
+    _run_explore_command(ctx, "news", max_count, cursor, as_json, as_yaml, output_file)
+
+
+@cli.command("todaynew", hidden=True)
+@click.option("--max", "-n", "max_count", type=int, default=None, help="Max number of news items to fetch.")
+@click.option("--cursor", type=str, default=None, help="Pagination cursor for continuing a previous news request.")
+@structured_output_options
+@click.option("--output", "-o", "output_file", type=str, default=None, help="Save news items to JSON file.")
+@click.pass_context
+def todaynew(ctx, max_count, cursor, as_json, as_yaml, output_file):
+    # type: (Any, Optional[int], Optional[str], bool, bool, Optional[str]) -> None
+    """Compatibility alias for today-news."""
+    _run_explore_command(ctx, "news", max_count, cursor, as_json, as_yaml, output_file)
 
 
 @cli.command()
