@@ -300,10 +300,20 @@ class TwitterClient:
     def fetch_user_tweets(self, user_id, count=20):
         # type: (str, int) -> List[Tweet]
         """Fetch tweets posted by a user."""
+
+        def get_user_tweets_instructions(data):
+            # type: (Any) -> Any
+            # New path (2026+): data.user.result.timeline.timeline.instructions
+            instructions = _deep_get(data, "data", "user", "result", "timeline", "timeline", "instructions")
+            if instructions is None:
+                # Legacy path: data.user.result.timeline_v2.timeline.instructions
+                instructions = _deep_get(data, "data", "user", "result", "timeline_v2", "timeline", "instructions")
+            return instructions
+
         return self._fetch_timeline(
             "UserTweets",
             count,
-            lambda data: _deep_get(data, "data", "user", "result", "timeline_v2", "timeline", "instructions"),
+            get_user_tweets_instructions,
             extra_variables={
                 "userId": user_id,
                 "withQuickPromoteEligibilityTweetFields": True,

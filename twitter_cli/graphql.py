@@ -30,7 +30,7 @@ FALLBACK_QUERY_IDS = {
     "HomeTimeline": "L8Lb9oomccM012S7fQ-QKA",
     "HomeLatestTimeline": "tzmrSIWxyV4IRRh9nij6TQ",
     "UserByScreenName": "IGgvgiOx4QZndDHuD3x9TQ",
-    "UserTweets": "O0epvwaQPUx-bT9YlqlL6w",
+    "UserTweets": "naBcZ4al-iTCFBYGOAMzBQ",
     "TweetDetail": "xIYgDwjboktoFeXe_fgacw",
     "Likes": "RozQdCp4CilQzrcuU0NY5w",
     "SearchTimeline": "rkp6b4vtR9u7v3naGoOzUQ",
