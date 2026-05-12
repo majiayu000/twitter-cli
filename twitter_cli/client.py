@@ -72,6 +72,26 @@ TimelineInstructionGetter = Callable[[Any], Any]
 # Hard ceiling to prevent accidental massive fetches
 _ABSOLUTE_MAX_COUNT = 500
 
+_STALE_QUERY_ID_MARKERS = (
+    "could not find operation",
+    "operation not found",
+    "persistedquerynotfound",
+    "persisted query",
+    "query id",
+    "queryid",
+    "query_id",
+)
+
+
+def _is_stale_query_id_error(exc: TwitterAPIError) -> bool:
+    """Return True when a GraphQL failure is likely a rotated queryId."""
+    if exc.status_code in (400, 404, 422):
+        return True
+    if exc.status_code != 0:
+        return False
+    message = str(exc.message).lower()
+    return any(marker in message for marker in _STALE_QUERY_ID_MARKERS)
+
 
 # ── Session management ───────────────────────────────────────────────────
 
@@ -989,8 +1009,10 @@ class TwitterClient:
         try:
             return self._api_get(url)
         except TwitterAPIError as exc:
-            # Fallback query IDs can go stale. Retry with live lookup if 404/422.
-            if exc.status_code in (404, 422) and using_fallback:
+            # Fallback query IDs can go stale. X may return this as HTTP
+            # 404/422 or as a 200 JSON errors payload normalized to
+            # TwitterAPIError(0).
+            if using_fallback and _is_stale_query_id_error(exc):
                 logger.info("Retrying %s with live queryId after %d", operation_name, exc.status_code)
                 _invalidate_query_id(operation_name)
                 refreshed_query_id = _resolve_query_id(operation_name, prefer_fallback=False, url_fetch_fn=_url_fetch)
@@ -1015,7 +1037,7 @@ class TwitterClient:
         try:
             return _do_post(query_id)
         except TwitterAPIError as exc:
-            if exc.status_code in (404, 422) and using_fallback:
+            if using_fallback and _is_stale_query_id_error(exc):
                 logger.info("Retrying POST %s with live queryId after %d", operation_name, exc.status_code)
                 _invalidate_query_id(operation_name)
                 refreshed = _resolve_query_id(operation_name, prefer_fallback=False, url_fetch_fn=_url_fetch)

@@ -14,6 +14,7 @@ import pytest
 
 from twitter_cli.client import (
     _best_chrome_target,
+    _is_stale_query_id_error,
     TwitterClient,
 )
 from twitter_cli.exceptions import TwitterAPIError
@@ -377,6 +378,44 @@ class TestPaginationBehavior:
             tweets = client._fetch_timeline("HomeTimeline", 1, lambda data: data)
 
         assert [tweet.id for tweet in tweets] == ["tweet-1"]
+
+
+class TestGraphqlQueryIdRetry:
+    def _make_client(self):
+        client = TwitterClient.__new__(TwitterClient)
+        client._request_delay = 0.0
+        client._max_retries = 0
+        client._retry_base_delay = 0.0
+        return client
+
+    def test_stale_query_id_detector_catches_json_error_shape(self):
+        exc = TwitterAPIError(0, "Twitter API returned errors: Could not find operation UserTweets")
+
+        assert _is_stale_query_id_error(exc) is True
+
+    def test_graphql_get_retries_live_query_id_for_json_error_shape(self):
+        client = self._make_client()
+        fallback = FALLBACK_QUERY_IDS["UserTweets"]
+        calls = []
+
+        def fake_resolve(operation_name, prefer_fallback=True, url_fetch_fn=None):
+            calls.append((operation_name, prefer_fallback))
+            return fallback if prefer_fallback else "live-query-id"
+
+        client._api_get = MagicMock(
+            side_effect=[
+                TwitterAPIError(0, "Twitter API returned errors: Could not find operation UserTweets"),
+                {"data": {"ok": True}},
+            ]
+        )
+
+        with patch("twitter_cli.client._resolve_query_id", side_effect=fake_resolve):
+            data = client._graphql_get("UserTweets", {"count": 1}, FEATURES)
+
+        assert data == {"data": {"ok": True}}
+        assert calls == [("UserTweets", True), ("UserTweets", False)]
+        assert fallback in client._api_get.call_args_list[0].args[0]
+        assert "live-query-id" in client._api_get.call_args_list[1].args[0]
 
     def test_stops_when_cursor_does_not_advance(self):
         client = TwitterClient.__new__(TwitterClient)
